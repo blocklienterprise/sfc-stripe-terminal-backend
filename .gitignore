@@ -1,1 +1,5 @@
 .env
+
+# Log files
+*.log
+nohup.out
