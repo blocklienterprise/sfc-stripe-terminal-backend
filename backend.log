@@ -1,0 +1,25 @@
+== Sinatra (v3.0.3) has taken the stage on 4567 for development with backup from Puma
+Puma starting in single mode...
+* Puma version: 6.3.1 (ruby 3.1.6-p260) ("Mugi No Toki Itaru")
+*  Min threads: 0
+*  Max threads: 5
+*  Environment: development
+*          PID: 48423
+== Someone is already performing on port 4567!
+== Sinatra has ended his set (crowd applauds)
+/Users/philipikpeiwunna/.rbenv/versions/3.1.6/lib/ruby/gems/3.1.0/gems/puma-6.3.1/lib/puma/binder.rb:334:in `initialize': Address already in use - bind(2) for "127.0.0.1" port 4567 (Errno::EADDRINUSE)
+	from /Users/philipikpeiwunna/.rbenv/versions/3.1.6/lib/ruby/gems/3.1.0/gems/puma-6.3.1/lib/puma/binder.rb:334:in `new'
+	from /Users/philipikpeiwunna/.rbenv/versions/3.1.6/lib/ruby/gems/3.1.0/gems/puma-6.3.1/lib/puma/binder.rb:334:in `add_tcp_listener'
+	from /Users/philipikpeiwunna/.rbenv/versions/3.1.6/lib/ruby/gems/3.1.0/gems/puma-6.3.1/lib/puma/binder.rb:328:in `block in add_tcp_listener'
+	from /Users/philipikpeiwunna/.rbenv/versions/3.1.6/lib/ruby/gems/3.1.0/gems/puma-6.3.1/lib/puma/binder.rb:327:in `each'
+	from /Users/philipikpeiwunna/.rbenv/versions/3.1.6/lib/ruby/gems/3.1.0/gems/puma-6.3.1/lib/puma/binder.rb:327:in `add_tcp_listener'
+	from /Users/philipikpeiwunna/.rbenv/versions/3.1.6/lib/ruby/gems/3.1.0/gems/puma-6.3.1/lib/puma/binder.rb:163:in `block in parse'
+	from /Users/philipikpeiwunna/.rbenv/versions/3.1.6/lib/ruby/gems/3.1.0/gems/puma-6.3.1/lib/puma/binder.rb:146:in `each'
+	from /Users/philipikpeiwunna/.rbenv/versions/3.1.6/lib/ruby/gems/3.1.0/gems/puma-6.3.1/lib/puma/binder.rb:146:in `parse'
+	from /Users/philipikpeiwunna/.rbenv/versions/3.1.6/lib/ruby/gems/3.1.0/gems/puma-6.3.1/lib/puma/runner.rb:164:in `load_and_bind'
+	from /Users/philipikpeiwunna/.rbenv/versions/3.1.6/lib/ruby/gems/3.1.0/gems/puma-6.3.1/lib/puma/single.rb:44:in `run'
+	from /Users/philipikpeiwunna/.rbenv/versions/3.1.6/lib/ruby/gems/3.1.0/gems/puma-6.3.1/lib/puma/launcher.rb:194:in `run'
+	from /Users/philipikpeiwunna/.rbenv/versions/3.1.6/lib/ruby/gems/3.1.0/gems/puma-6.3.1/lib/rack/handler/puma.rb:76:in `run'
+	from /Users/philipikpeiwunna/.rbenv/versions/3.1.6/lib/ruby/gems/3.1.0/gems/sinatra-3.0.4/lib/sinatra/base.rb:1578:in `start_server'
+	from /Users/philipikpeiwunna/.rbenv/versions/3.1.6/lib/ruby/gems/3.1.0/gems/sinatra-3.0.4/lib/sinatra/base.rb:1517:in `run!'
+	from /Users/philipikpeiwunna/.rbenv/versions/3.1.6/lib/ruby/gems/3.1.0/gems/sinatra-3.0.4/lib/sinatra/main.rb:47:in `block in <module:Sinatra>'
