@@ -9,13 +9,11 @@ require 'sinatra/cross_origin'
 # This enables the requires CORS headers to allow the browser to make the requests from the JS Example App.
 configure do
   enable :cross_origin
-  # Disable host authorization protection for Render deployment
-  set :protection, except: [:host_authorization]
   # Additional settings for production deployment
   set :bind, '0.0.0.0'
   set :port, ENV.fetch('PORT', 4567)
-  # Disable protection features that can cause issues with hosting
-  set :protection, false
+  # Completely disable all Rack protection features for hosting compatibility
+  disable :protection
 end
 
 before do
