@@ -12,10 +12,8 @@ configure do
   # Additional settings for production deployment
   set :bind, '0.0.0.0'
   set :port, ENV.fetch('PORT', 4567)
-  # Configure host authorization for Render deployment
-  set :protection, except: [:host_authorization]
-  # Alternative: explicitly allow Render hosts
-  # set :protection, host_authorization: { permitted_hosts: ["sfc-stripe-terminal-backend.onrender.com", ".onrender.com"] }
+  # Disable host authorization protection completely for Render
+  set :protection, false
 end
 
 before do
