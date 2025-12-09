@@ -12,6 +12,14 @@ configure do
   # Additional settings for production deployment
   set :bind, '0.0.0.0'
   set :port, ENV.fetch('PORT', 4567)
+  # Allow Render + local hosts; avoids "Host not permitted" from Rack::Protection
+  default_hosts = %w[localhost 127.0.0.1 0.0.0.0]
+  render_host = ENV['RENDER_EXTERNAL_HOSTNAME']
+  extra_hosts = ENV.fetch('ALLOWED_HOSTS', '').split(',').map(&:strip).reject(&:empty?)
+  permitted_hosts = default_hosts + extra_hosts
+  permitted_hosts << render_host if render_host
+  permitted_hosts << /.*\.onrender\.com$/ unless permitted_hosts.any? { |host| host.is_a?(Regexp) && host.source == '.*\\.onrender\\.com$' }
+  set :host_authorization, { permitted_hosts: permitted_hosts }
   # Completely disable protection middleware for Render deployment
   disable :protection
 end
@@ -422,4 +430,3 @@ post '/process_payment_on_reader' do
     return log_info("Error processing payment on reader! #{e.message}")
   end
 end
-
