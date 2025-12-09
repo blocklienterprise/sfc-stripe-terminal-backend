@@ -9,10 +9,26 @@ require 'sinatra/cross_origin'
 # This enables the requires CORS headers to allow the browser to make the requests from the JS Example App.
 configure do
   enable :cross_origin
+  # Additional settings for production deployment
+  set :bind, '0.0.0.0'
+  set :port, ENV.fetch('PORT', 4567)
+  # Allow Render + local hosts; avoids "Host not permitted" from Rack::Protection
+  default_hosts = %w[localhost 127.0.0.1 0.0.0.0]
+  render_host = ENV['RENDER_EXTERNAL_HOSTNAME']
+  extra_hosts = ENV.fetch('ALLOWED_HOSTS', '').split(',').map(&:strip).reject(&:empty?)
+  permitted_hosts = default_hosts + extra_hosts
+  permitted_hosts << render_host if render_host
+  permitted_hosts << /.*\.onrender\.com$/ unless permitted_hosts.any? { |host| host.is_a?(Regexp) && host.source == '.*\\.onrender\\.com$' }
+  set :host_authorization, { permitted_hosts: permitted_hosts }
+  # Completely disable protection middleware for Render deployment
+  disable :protection
 end
 
 before do
   response.headers['Access-Control-Allow-Origin'] = '*'
+  response.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS'
+  response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization'
+  
   # Parse JSON body for POST requests
   if request.post? && request.content_type&.include?('application/json')
     body = request.body.read
@@ -190,17 +206,59 @@ end
 # https://stripe.com/docs/api/payment_intents/cancel
 post '/cancel_payment_intent' do
   begin
-    id = params["payment_intent_id"]
+    # Parse JSON body if content type is JSON
+    if request.content_type&.include?('application/json')
+      body = request.body.read
+      request.body.rewind
+      json_params = JSON.parse(body) rescue {}
+      id = json_params["payment_intent_id"]
+      reader_id = json_params["reader_id"]
+    else
+      id = params["payment_intent_id"]
+      reader_id = params["reader_id"]
+    end
+    
+    log_info("Cancel payment intent requested: #{id}")
+    log_info("Reader ID: #{reader_id}")
+    
+    if id.nil? || id.empty?
+      status 400
+      return log_info("❌ Error: payment_intent_id is required")
+    end
+    
+    # CRITICAL: Cancel the reader action FIRST before canceling payment intent
+    # This ensures the S700 reader stops waiting for a card tap
+    reader_cancelled = false
+    if reader_id && !reader_id.empty?
+      begin
+        log_info("Attempting to cancel reader action on reader: #{reader_id}")
+        Stripe::Terminal::Reader.cancel_action(reader_id)
+        reader_cancelled = true
+        log_info("✅ Reader action cancelled successfully")
+      rescue Stripe::StripeError => reader_error
+        log_info("⚠️ Reader cancel failed: #{reader_error.message}")
+        # If reader cancel fails, we should still try to cancel the payment intent
+      end
+    else
+      log_info("⚠️ No reader_id provided, skipping reader cancellation")
+    end
+    
+    # Cancel the payment intent
     payment_intent = Stripe::PaymentIntent.cancel(id)
+    log_info("✅ PaymentIntent successfully canceled: #{id}")
+    
   rescue Stripe::StripeError => e
     status 402
-    return log_info("Error canceling PaymentIntent! #{e.message}")
+    return log_info("❌ Error canceling PaymentIntent! #{e.message}")
   end
 
-  log_info("PaymentIntent successfully canceled: #{id}")
   # Optionally reconcile the PaymentIntent with your internal order system.
   status 200
-  return {:intent => payment_intent.id, :secret => payment_intent.client_secret}.to_json
+  return {
+    :intent => payment_intent.id, 
+    :secret => payment_intent.client_secret,
+    :reader_cancelled => reader_cancelled
+  }.to_json
 end
 
 # This endpoint creates a SetupIntent.
@@ -414,4 +472,3 @@ post '/process_payment_on_reader' do
     return log_info("Error processing payment on reader! #{e.message}")
   end
 end
-
