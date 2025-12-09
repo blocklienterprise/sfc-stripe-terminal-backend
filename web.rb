@@ -206,17 +206,59 @@ end
 # https://stripe.com/docs/api/payment_intents/cancel
 post '/cancel_payment_intent' do
   begin
-    id = params["payment_intent_id"]
+    # Parse JSON body if content type is JSON
+    if request.content_type&.include?('application/json')
+      body = request.body.read
+      request.body.rewind
+      json_params = JSON.parse(body) rescue {}
+      id = json_params["payment_intent_id"]
+      reader_id = json_params["reader_id"]
+    else
+      id = params["payment_intent_id"]
+      reader_id = params["reader_id"]
+    end
+    
+    log_info("Cancel payment intent requested: #{id}")
+    log_info("Reader ID: #{reader_id}")
+    
+    if id.nil? || id.empty?
+      status 400
+      return log_info("❌ Error: payment_intent_id is required")
+    end
+    
+    # CRITICAL: Cancel the reader action FIRST before canceling payment intent
+    # This ensures the S700 reader stops waiting for a card tap
+    reader_cancelled = false
+    if reader_id && !reader_id.empty?
+      begin
+        log_info("Attempting to cancel reader action on reader: #{reader_id}")
+        Stripe::Terminal::Reader.cancel_action(reader_id)
+        reader_cancelled = true
+        log_info("✅ Reader action cancelled successfully")
+      rescue Stripe::StripeError => reader_error
+        log_info("⚠️ Reader cancel failed: #{reader_error.message}")
+        # If reader cancel fails, we should still try to cancel the payment intent
+      end
+    else
+      log_info("⚠️ No reader_id provided, skipping reader cancellation")
+    end
+    
+    # Cancel the payment intent
     payment_intent = Stripe::PaymentIntent.cancel(id)
+    log_info("✅ PaymentIntent successfully canceled: #{id}")
+    
   rescue Stripe::StripeError => e
     status 402
-    return log_info("Error canceling PaymentIntent! #{e.message}")
+    return log_info("❌ Error canceling PaymentIntent! #{e.message}")
   end
 
-  log_info("PaymentIntent successfully canceled: #{id}")
   # Optionally reconcile the PaymentIntent with your internal order system.
   status 200
-  return {:intent => payment_intent.id, :secret => payment_intent.client_secret}.to_json
+  return {
+    :intent => payment_intent.id, 
+    :secret => payment_intent.client_secret,
+    :reader_cancelled => reader_cancelled
+  }.to_json
 end
 
 # This endpoint creates a SetupIntent.
