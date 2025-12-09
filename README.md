@@ -67,7 +67,5 @@ Next, navigate to one of our example apps. Follow the instructions in the README
 | JavaScript | https://github.com/stripe/stripe-terminal-js-demo |
 | Android | https://github.com/stripe/stripe-terminal-android |
 
-# Chnagelog
-
 
 
