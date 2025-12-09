@@ -12,8 +12,8 @@ configure do
   # Additional settings for production deployment
   set :bind, '0.0.0.0'
   set :port, ENV.fetch('PORT', 4567)
-  # Disable host authorization protection completely for Render
-  set :protection, false
+  # Disable host authorization protection for Render deployment
+  set :protection, except: :host_authorization
 end
 
 before do
