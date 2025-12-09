@@ -9,12 +9,16 @@ require 'sinatra/cross_origin'
 # This enables the requires CORS headers to allow the browser to make the requests from the JS Example App.
 configure do
   enable :cross_origin
-  # Disable host authorization protection for Render deployment
-  set :protection, except: [:host_authorization]
 end
 
 before do
   response.headers['Access-Control-Allow-Origin'] = '*'
+  # Parse JSON body for POST requests
+  if request.post? && request.content_type&.include?('application/json')
+    body = request.body.read
+    request.body.rewind
+    @json_params = JSON.parse(body) rescue {}
+  end
 end
 
 options "*" do
@@ -123,14 +127,18 @@ post '/create_payment_intent' do
   end
 
   begin
+    # Support both form params and JSON body
+    request_params = @json_params || params
+    
     payment_intent = Stripe::PaymentIntent.create(
-      :payment_method_types => params[:payment_method_types] || ['card_present'],
-      :capture_method => params[:capture_method] || 'manual',
-      :amount => params[:amount],
-      :currency => params[:currency] || 'usd',
-      :description => params[:description] || 'Example PaymentIntent',
-      :payment_method_options => params[:payment_method_options] || [],
-      :receipt_email => params[:receipt_email],
+      :payment_method_types => request_params[:payment_method_types] || request_params['payment_method_types'] || ['card_present'],
+      :capture_method => request_params[:capture_method] || request_params['capture_method'] || 'automatic',
+      :amount => request_params[:amount] || request_params['amount'],
+      :currency => request_params[:currency] || request_params['currency'] || 'usd',
+      :description => request_params[:description] || request_params['description'] || 'Example PaymentIntent',
+      :payment_method_options => request_params[:payment_method_options] || request_params['payment_method_options'] || [],
+      :receipt_email => request_params[:receipt_email] || request_params['receipt_email'],
+      :metadata => request_params[:metadata] || request_params['metadata'] || {},
     )
   rescue Stripe::StripeError => e
     status 402
@@ -140,6 +148,21 @@ post '/create_payment_intent' do
   log_info("PaymentIntent successfully created: #{payment_intent.id}")
   status 200
   return {:intent => payment_intent.id, :secret => payment_intent.client_secret}.to_json
+end
+
+# This endpoint retrieves a PaymentIntent for status polling
+# https://stripe.com/docs/api/payment_intents/retrieve
+get '/payment_intent/:id' do
+  begin
+    payment_intent = Stripe::PaymentIntent.retrieve(params[:id])
+  rescue Stripe::StripeError => e
+    status 402
+    return log_info("Error retrieving PaymentIntent! #{e.message}")
+  end
+
+  status 200
+  content_type :json
+  return payment_intent.to_json
 end
 
 # This endpoint captures a PaymentIntent.
@@ -343,4 +366,51 @@ post '/create_location' do
   status 200
   content_type :json
   return location.to_json
+end
+
+# This endpoint processes a payment intent on an S700 reader (server-driven integration)
+# https://stripe.com/docs/api/terminal/readers/process_payment_intent
+post '/process_payment_on_reader' do
+  validationError = validateApiKey
+  if !validationError.nil?
+    status 400
+    return log_info(validationError)
+  end
+
+  begin
+    # Support both form params and JSON body
+    request_params = @json_params || params
+    
+    reader_id = request_params[:reader_id] || request_params['reader_id']
+    payment_intent_id = request_params[:payment_intent_id] || request_params['payment_intent_id']
+    
+    if reader_id.nil? || reader_id.empty?
+      status 400
+      return log_info("Error: reader_id is required")
+    end
+    
+    if payment_intent_id.nil? || payment_intent_id.empty?
+      status 400
+      return log_info("Error: payment_intent_id is required")
+    end
+
+    log_info("Processing payment intent #{payment_intent_id} on reader #{reader_id}")
+    
+    # Process the payment intent on the S700 reader
+    reader = Stripe::Terminal::Reader.process_payment_intent(
+      reader_id,
+      { payment_intent: payment_intent_id }
+    )
+    
+    log_info("Payment intent sent to reader: #{reader.id}")
+    
+    # Return the reader object with the action
+    status 200
+    content_type :json
+    return reader.to_json
+    
+  rescue Stripe::StripeError => e
+    status 402
+    return log_info("Error processing payment on reader! #{e.message}")
+  end
 end
