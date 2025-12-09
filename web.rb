@@ -11,6 +11,11 @@ configure do
   enable :cross_origin
   # Disable host authorization protection for Render deployment
   set :protection, except: [:host_authorization]
+  # Additional settings for production deployment
+  set :bind, '0.0.0.0'
+  set :port, ENV.fetch('PORT', 4567)
+  # Disable protection features that can cause issues with hosting
+  set :protection, false
 end
 
 before do
