@@ -12,12 +12,15 @@ configure do
   # Additional settings for production deployment
   set :bind, '0.0.0.0'
   set :port, ENV.fetch('PORT', 4567)
-  # Completely disable all Rack protection features for hosting compatibility
-  disable :protection
+  # Configure host authorization for Render deployment
+  set :protection, :host_authorization => { :permitted_hosts => [".onrender.com"] }
 end
 
 before do
   response.headers['Access-Control-Allow-Origin'] = '*'
+  response.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS'
+  response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization'
+  
   # Parse JSON body for POST requests
   if request.post? && request.content_type&.include?('application/json')
     body = request.body.read
