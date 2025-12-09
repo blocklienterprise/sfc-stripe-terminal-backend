@@ -1,4 +1,4 @@
-FROM ruby:3.1.2-alpine
+FROM ruby:3.1.6-alpine
 
 RUN apk add build-base
 RUN gem install bundler:2.3.24
