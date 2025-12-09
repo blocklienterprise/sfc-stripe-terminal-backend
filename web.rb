@@ -414,3 +414,4 @@ post '/process_payment_on_reader' do
     return log_info("Error processing payment on reader! #{e.message}")
   end
 end
+
