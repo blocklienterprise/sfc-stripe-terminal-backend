@@ -499,13 +499,11 @@ post '/process_payment_on_reader' do
   end
 end
 
-# Looks up a PCO person by email. If not found, creates a new donor record.
-# Returns { found, person_id, person_name, first_name, last_name }
-post '/lookup_or_create_pco_person' do
+# Looks up a PCO person by email only. Returns found=true/false with person details.
+# Does NOT create an account. Use POST /create_pco_person for that.
+post '/lookup_pco_person' do
   request_params = @json_params || params
-  email      = request_params['email']      || request_params[:email]
-  first_name = request_params['first_name'] || request_params[:first_name] || ''
-  last_name  = request_params['last_name']  || request_params[:last_name]  || ''
+  email = request_params['email'] || request_params[:email]
 
   if email.nil? || email.strip.empty?
     status 400
@@ -515,21 +513,18 @@ post '/lookup_or_create_pco_person' do
   email = email.strip.downcase
 
   begin
-    # Step 1: Search PCO People by email
     search_url = "#{PCO_PEOPLE_BASE}/emails?where[address]=#{URI.encode_www_form_component(email)}&per_page=1&include=person"
     result = pco_request(:get, search_url)
 
     email_record = result['data']&.first
-    person_id = email_record&.dig('relationships', 'person', 'data', 'id')
+    person_id    = email_record&.dig('relationships', 'person', 'data', 'id')
 
     if person_id
-      # Step 2a: Fetch person details
-      person_url = "#{PCO_PEOPLE_BASE}/people/#{person_id}"
-      person_result = pco_request(:get, person_url)
-      person_data   = person_result['data']&.dig('attributes') || {}
-      found_first   = person_data['first_name'] || ''
-      found_last    = person_data['last_name']  || ''
-      person_name   = "#{found_first} #{found_last}".strip
+      person_result = pco_request(:get, "#{PCO_PEOPLE_BASE}/people/#{person_id}")
+      attrs       = person_result['data']&.dig('attributes') || {}
+      found_first = attrs['first_name'] || ''
+      found_last  = attrs['last_name']  || ''
+      person_name = "#{found_first} #{found_last}".strip
 
       log_info("PCO person found: #{person_name} (#{person_id}) for #{email}")
 
@@ -543,53 +538,85 @@ post '/lookup_or_create_pco_person' do
         last_name:   found_last,
       }.to_json
     else
-      # Step 2b: Create a new PCO person
-      new_person_body = {
-        data: {
-          type: 'Person',
-          attributes: {
-            first_name: first_name.empty? ? email.split('@').first.split('.').map(&:capitalize).join(' ') : first_name,
-            last_name:  last_name,
-          }
-        }
-      }
-      create_result = pco_request(:post, "#{PCO_PEOPLE_BASE}/people", new_person_body)
-      new_person_id = create_result.dig('data', 'id')
-
-      unless new_person_id
-        status 500
-        return { error: 'Failed to create PCO person' }.to_json
-      end
-
-      # Add email to the new person
-      email_body = {
-        data: {
-          type: 'Email',
-          attributes: { address: email, location: 'Home', primary: true }
-        }
-      }
-      pco_request(:post, "#{PCO_PEOPLE_BASE}/people/#{new_person_id}/emails", email_body)
-
-      attrs      = create_result.dig('data', 'attributes') || {}
-      new_first  = attrs['first_name'] || first_name
-      new_last   = attrs['last_name']  || last_name
-      new_name   = "#{new_first} #{new_last}".strip
-
-      log_info("PCO person created: #{new_name} (#{new_person_id}) for #{email}")
-
+      log_info("PCO person not found for #{email}")
       status 200
       content_type :json
-      return {
-        found:       false,
-        person_id:   new_person_id,
-        person_name: new_name.empty? ? email : new_name,
-        first_name:  new_first,
-        last_name:   new_last,
-      }.to_json
+      return { found: false }.to_json
     end
 
   rescue => e
-    log_info("PCO lookup/create error: #{e.message}")
+    log_info("PCO lookup error: #{e.message}")
+    status 502
+    return { error: "PCO error: #{e.message}" }.to_json
+  end
+end
+
+# Creates a new PCO donor account. Called after user confirms their name on the kiosk.
+# Accepts: email, first_name, last_name, phone (optional)
+post '/create_pco_person' do
+  request_params = @json_params || params
+  email      = request_params['email']      || request_params[:email]
+  first_name = (request_params['first_name'] || request_params[:first_name] || '').strip
+  last_name  = (request_params['last_name']  || request_params[:last_name]  || '').strip
+  phone      = (request_params['phone']      || request_params[:phone]      || '').strip
+
+  if email.nil? || email.strip.empty?
+    status 400
+    return { error: 'email is required' }.to_json
+  end
+  if first_name.empty? || last_name.empty?
+    status 400
+    return { error: 'first_name and last_name are required' }.to_json
+  end
+
+  email = email.strip.downcase
+
+  begin
+    # Create the person
+    new_person_body = {
+      data: {
+        type: 'Person',
+        attributes: { first_name: first_name, last_name: last_name }
+      }
+    }
+    create_result = pco_request(:post, "#{PCO_PEOPLE_BASE}/people", new_person_body)
+    new_person_id = create_result.dig('data', 'id')
+
+    unless new_person_id
+      status 500
+      return { error: 'Failed to create PCO person' }.to_json
+    end
+
+    # Attach email
+    pco_request(:post, "#{PCO_PEOPLE_BASE}/people/#{new_person_id}/emails", {
+      data: { type: 'Email', attributes: { address: email, location: 'Home', primary: true } }
+    })
+
+    # Attach phone if provided
+    unless phone.empty?
+      pco_request(:post, "#{PCO_PEOPLE_BASE}/people/#{new_person_id}/phone_numbers", {
+        data: { type: 'PhoneNumber', attributes: { number: phone, location: 'Mobile', primary: true } }
+      })
+    end
+
+    attrs     = create_result.dig('data', 'attributes') || {}
+    new_first = attrs['first_name'] || first_name
+    new_last  = attrs['last_name']  || last_name
+    new_name  = "#{new_first} #{new_last}".strip
+
+    log_info("PCO person created: #{new_name} (#{new_person_id}) for #{email}")
+
+    status 200
+    content_type :json
+    return {
+      person_id:   new_person_id,
+      person_name: new_name.empty? ? email : new_name,
+      first_name:  new_first,
+      last_name:   new_last,
+    }.to_json
+
+  rescue => e
+    log_info("PCO create error: #{e.message}")
     status 502
     return { error: "PCO error: #{e.message}" }.to_json
   end
