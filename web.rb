@@ -568,11 +568,13 @@ post '/lookup_pco_person_by_phone' do
     status 400
     return { error: 'phone must have at least 10 digits' }.to_json
   end
-  digits = digits.last(10) # take last 10 in case country code was included
+  digits = digits[-10..]  # take last 10 chars in case country code was included
   normalized = "(#{digits[0..2]}) #{digits[3..5]}-#{digits[6..9]}"
 
   begin
-    search_url = "#{PCO_PEOPLE_BASE}/phone_numbers?where[number]=#{URI.encode_www_form_component(normalized)}&per_page=1&include=person"
+    # Use %20 for spaces (not +) so PCO can match the stored phone format
+    encoded_phone = URI.encode_www_form_component(normalized).gsub('+', '%20')
+    search_url = "#{PCO_PEOPLE_BASE}/phone_numbers?where[number]=#{encoded_phone}&per_page=1&include=person"
     result = pco_request(:get, search_url)
 
     phone_record = result['data']&.first
