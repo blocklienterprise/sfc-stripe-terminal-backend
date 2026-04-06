@@ -551,6 +551,107 @@ post '/lookup_pco_person' do
   end
 end
 
+# Looks up a PCO person by phone number.
+# Normalises the number, searches PCO phone_numbers, returns person details + email if on file.
+post '/lookup_pco_person_by_phone' do
+  request_params = @json_params || params
+  phone_raw = request_params['phone'] || request_params[:phone]
+
+  if phone_raw.nil? || phone_raw.to_s.strip.empty?
+    status 400
+    return { error: 'phone is required' }.to_json
+  end
+
+  # Normalise to digits only, then format as (XXX) XXX-XXXX for PCO
+  digits = phone_raw.to_s.gsub(/\D/, '')
+  if digits.length < 10
+    status 400
+    return { error: 'phone must have at least 10 digits' }.to_json
+  end
+  digits = digits.last(10) # take last 10 in case country code was included
+  normalized = "(#{digits[0..2]}) #{digits[3..5]}-#{digits[6..9]}"
+
+  begin
+    search_url = "#{PCO_PEOPLE_BASE}/phone_numbers?where[number]=#{URI.encode_www_form_component(normalized)}&per_page=1&include=person"
+    result = pco_request(:get, search_url)
+
+    phone_record = result['data']&.first
+    person_id    = phone_record&.dig('relationships', 'person', 'data', 'id')
+
+    unless person_id
+      log_info("PCO person not found for phone #{normalized}")
+      status 200
+      content_type :json
+      return { found: false }.to_json
+    end
+
+    # Fetch person details
+    person_result = pco_request(:get, "#{PCO_PEOPLE_BASE}/people/#{person_id}")
+    attrs       = person_result['data']&.dig('attributes') || {}
+    found_first = attrs['first_name'] || ''
+    found_last  = attrs['last_name']  || ''
+    person_name = "#{found_first} #{found_last}".strip
+
+    # Fetch email if on file
+    emails_result = pco_request(:get, "#{PCO_PEOPLE_BASE}/people/#{person_id}/emails?per_page=1")
+    person_email  = emails_result['data']&.first&.dig('attributes', 'address')
+
+    log_info("PCO person found by phone: #{person_name} (#{person_id}), email: #{person_email || 'none'}")
+
+    status 200
+    content_type :json
+    return {
+      found:        true,
+      person_id:    person_id,
+      person_name:  person_name.empty? ? normalized : person_name,
+      person_email: person_email,
+      first_name:   found_first,
+      last_name:    found_last,
+    }.to_json
+
+  rescue => e
+    log_info("PCO phone lookup error: #{e.message}")
+    status 502
+    return { error: "PCO error: #{e.message}" }.to_json
+  end
+end
+
+# Adds a primary email to an existing PCO person record.
+# Used when phone lookup found a person with no email on file.
+post '/update_pco_person_email' do
+  request_params = @json_params || params
+  person_id = request_params['person_id'] || request_params[:person_id]
+  email     = request_params['email']     || request_params[:email]
+
+  if person_id.nil? || person_id.to_s.strip.empty?
+    status 400
+    return { error: 'person_id is required' }.to_json
+  end
+  if email.nil? || email.to_s.strip.empty?
+    status 400
+    return { error: 'email is required' }.to_json
+  end
+
+  email = email.strip.downcase
+
+  begin
+    pco_request(:post, "#{PCO_PEOPLE_BASE}/people/#{person_id}/emails", {
+      data: { type: 'Email', attributes: { address: email, location: 'Home', primary: true } }
+    })
+
+    log_info("Email #{email} added to PCO person #{person_id}")
+
+    status 200
+    content_type :json
+    return { success: true }.to_json
+
+  rescue => e
+    log_info("PCO email update error: #{e.message}")
+    status 502
+    return { error: "PCO error: #{e.message}" }.to_json
+  end
+end
+
 # Creates a new PCO donor account. Called after user confirms their name on the kiosk.
 # Accepts: email, first_name, last_name, phone (optional)
 post '/create_pco_person' do
