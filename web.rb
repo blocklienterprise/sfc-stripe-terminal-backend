@@ -695,11 +695,21 @@ post '/create_pco_person' do
       data: { type: 'Email', attributes: { address: email, location: 'Home', primary: true } }
     })
 
-    # Attach phone if provided
+    # Attach phone if provided — normalise to (XXX) XXX-XXXX first
     unless phone.empty?
-      pco_request(:post, "#{PCO_PEOPLE_BASE}/people/#{new_person_id}/phone_numbers", {
-        data: { type: 'PhoneNumber', attributes: { number: phone, location: 'Mobile', primary: true } }
-      })
+      phone_digits = phone.gsub(/\D/, '')
+      if phone_digits.length >= 10
+        phone_digits = phone_digits[-10..]
+        phone_normalized = "(#{phone_digits[0..2]}) #{phone_digits[3..5]}-#{phone_digits[6..9]}"
+        phone_result = pco_request(:post, "#{PCO_PEOPLE_BASE}/people/#{new_person_id}/phone_numbers", {
+          data: { type: 'PhoneNumber', attributes: { number: phone_normalized, location: 'Mobile', primary: true } }
+        })
+        if phone_result['errors']
+          log_info("PCO phone attachment warning for #{new_person_id}: #{phone_result['errors'].inspect}")
+        end
+      else
+        log_info("Skipping phone attachment — too few digits: #{phone}")
+      end
     end
 
     attrs     = create_result.dig('data', 'attributes') || {}
